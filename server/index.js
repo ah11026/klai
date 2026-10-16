@@ -15,8 +15,8 @@ app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = new Server(server, {
   maxHttpBufferSize: 16 * 1024,
-  pingInterval: 10000,
-  pingTimeout: 20000
+  pingInterval: 25000,
+  pingTimeout: 60000
 });
 const rooms = new RoomStore();
 const gameLibrary = new GameLibrary();

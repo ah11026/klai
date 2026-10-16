@@ -43,7 +43,16 @@ export class RoomStore {
   join(code, socketId, name) {
     const room = this.rooms.get(String(code ?? ""));
     if (!room) return { ok: false, error: "الغرفة غير موجودة" };
-    if (room.players.has(socketId) || this.socketRooms.has(socketId)) {
+    const existingMember = room.players.get(socketId);
+    if (existingMember) {
+      return {
+        ok: true,
+        player: existingMember.player,
+        code: room.code,
+        state: this.state(room)
+      };
+    }
+    if (this.socketRooms.has(socketId)) {
       return { ok: false, error: "هذا الاتصال منضم بالفعل" };
     }
     if (room.players.size >= MAX_PLAYERS) {

@@ -1,4 +1,12 @@
-const socket = io();
+const socket = io({
+  transports: ["websocket", "polling"],
+  tryAllTransports: true,
+  rememberUpgrade: true,
+  timeout: 20000,
+  reconnection: true,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 5000
+});
 const qr = document.querySelector("#qr");
 const qrWrap = document.querySelector(".qr-wrap");
 const roomCode = document.querySelector("#roomCode");

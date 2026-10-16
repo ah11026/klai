@@ -1,4 +1,12 @@
-const socket = io();
+const socket = io({
+  transports: ["websocket", "polling"],
+  tryAllTransports: true,
+  rememberUpgrade: true,
+  timeout: 20000,
+  reconnection: true,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 5000
+});
 const roomCode = new URLSearchParams(location.search).get("room");
 const status = document.querySelector("#status");
 const padStatus = document.querySelector("#padStatus");
@@ -82,7 +90,7 @@ function joinRoom() {
   joining = true;
   joinButton.disabled = true;
   status.textContent = "جارٍ الانضمام إلى الغرفة...";
-  socket.timeout(7000).emit("room:join", {
+  socket.timeout(20000).emit("room:join", {
     code: roomCode,
     name: playerName
   }, (timeoutError, result) => {

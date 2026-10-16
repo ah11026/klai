@@ -15,6 +15,18 @@ test("room assigns available player slots and rejects a fifth player", () => {
   assert.equal(rooms.join(code, "replacement", "Player").player, 2);
 });
 
+test("repeated room join on the same socket returns its existing player seat", () => {
+  const rooms = new RoomStore();
+  const { code } = rooms.create("host");
+  const firstJoin = rooms.join(code, "phone", "Player");
+  const retry = rooms.join(code, "phone", "Player");
+
+  assert.equal(firstJoin.ok, true);
+  assert.equal(retry.ok, true);
+  assert.equal(retry.player, firstJoin.player);
+  assert.equal(retry.state.players.length, 1);
+});
+
 test("input validates buttons and releases held buttons when a player leaves", () => {
   const rooms = new RoomStore();
   const { code } = rooms.create("host");
