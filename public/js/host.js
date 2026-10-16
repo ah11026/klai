@@ -18,6 +18,28 @@ const libraryKey = document.querySelector("#libraryKey");
 const emulatorFrame = document.querySelector("#emulatorFrame");
 let hostToken = "";
 let toastTimeout;
+let emulatorReady = false;
+const pendingEmulatorMessages = [];
+
+function sendEmulatorMessage(message) {
+  if (emulatorReady && emulatorFrame.contentWindow) {
+    emulatorFrame.contentWindow.postMessage(message, location.origin);
+    return;
+  }
+  if (pendingEmulatorMessages.length >= 512) {
+    pendingEmulatorMessages.length = 0;
+    pendingEmulatorMessages.push({ type: "remote-input-release-all" });
+  }
+  pendingEmulatorMessages.push(message);
+}
+
+window.addEventListener("message", event => {
+  if (event.origin !== location.origin || event.source !== emulatorFrame.contentWindow || event.data?.type !== "emulator-ready") return;
+  emulatorReady = true;
+  while (pendingEmulatorMessages.length) {
+    emulatorFrame.contentWindow.postMessage(pendingEmulatorMessages.shift(), location.origin);
+  }
+});
 
 function showToast(message) {
   toast.textContent = message;
@@ -128,6 +150,8 @@ function launchGame(game) {
   const url = new URL("/emulator.html", location.origin);
   url.searchParams.set("system", game.system);
   url.searchParams.set("path", game.path);
+  emulatorReady = false;
+  pendingEmulatorMessages.length = 0;
   document.querySelector("#gameScreen .screen-content").hidden = true;
   emulatorFrame.hidden = false;
   emulatorFrame.src = url.toString();
@@ -244,15 +268,22 @@ socket.on("disconnect", () => {
   connection.classList.remove("connected");
   connectionLabel.textContent = "انقطع الاتصال";
   qrStatus.textContent = "انقطع الاتصال بالخادم";
+  sendEmulatorMessage({ type: "remote-input-release-all" });
+});
+
+socket.on("connect_error", () => {
+  connection.classList.remove("connected");
+  connectionLabel.textContent = "إعادة محاولة الاتصال";
 });
 
 socket.on("room:state", state => renderPlayers(state.players));
 
 socket.on("game:input", event => {
-  const action = event.pressed ? "ضغط" : "أفلت";
-  inputReadout.textContent = `P${event.player} · ${action} ${event.button}`;
+  inputReadout.textContent = event.axis
+    ? `P${event.player} · عصا ${event.axis} ${event.value.toFixed(2)}`
+    : `P${event.player} · ${event.pressed ? "ضغط" : "أفلت"} ${event.button}`;
   window.dispatchEvent(new CustomEvent("remote-game-input", { detail: event }));
-  emulatorFrame.contentWindow?.postMessage({ type: "remote-game-input", detail: event }, location.origin);
+  sendEmulatorMessage({ type: "remote-game-input", detail: event });
 });
 
 socket.on("room:closed", () => {

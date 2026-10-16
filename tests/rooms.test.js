@@ -26,6 +26,18 @@ test("input validates buttons and releases held buttons when a player leaves", (
   assert.deepEqual(rooms.leave("phone").released.map(event => [event.button, event.pressed]), [["a", false]]);
 });
 
+test("analog inputs validate axes and reset them when a player disconnects", () => {
+  const rooms = new RoomStore();
+  const { code } = rooms.create("host");
+  rooms.join(code, "phone", "Player");
+
+  assert.equal(rooms.input("phone", { axis: "left-x", value: 0.7 }).event.value, 0.7);
+  assert.equal(rooms.input("phone", { axis: "left-y", value: 0.06 }).event.value, 0);
+  assert.equal(rooms.input("phone", { axis: "left-y", value: 0.06 }).changed, false);
+  assert.equal(rooms.input("phone", { axis: "left-x", value: 3 }).ok, false);
+  assert.deepEqual(rooms.leave("phone").released.map(({ axis, value }) => [axis, value]), [["left-x", 0]]);
+});
+
 test("only the host capability can authenticate room QR requests", () => {
   const rooms = new RoomStore();
   const { code, hostToken } = rooms.create("host");

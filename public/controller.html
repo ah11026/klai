@@ -30,18 +30,26 @@
     <div class="pad-body">
       <section class="pad-cluster movement-cluster" aria-label="أزرار الاتجاهات">
         <div class="cluster-label">تحرك</div>
-        <div class="dpad">
+        <div class="movement-modes" role="group" aria-label="طريقة الحركة">
+          <button class="active" type="button" data-move-mode="dpad" aria-pressed="true">اتجاهات</button>
+          <button type="button" data-move-mode="stick" aria-pressed="false">عصا</button>
+        </div>
+        <div class="dpad" id="dpad">
           <button class="direction up" data-button="up" aria-label="أعلى">▲</button>
           <button class="direction left" data-button="left" aria-label="يسار">◀</button>
           <span class="dpad-center">✳</span>
           <button class="direction right" data-button="right" aria-label="يمين">▶</button>
           <button class="direction down" data-button="down" aria-label="أسفل">▼</button>
         </div>
+        <div class="analog-stick" id="leftStick" hidden aria-label="العصا التناظرية اليسرى">
+          <span class="stick-ring"></span><span class="stick-knob" id="stickKnob"></span>
+        </div>
         <div class="small-buttons"><button data-button="select">SELECT</button><button data-button="start">START</button></div>
       </section>
 
       <section class="pad-cluster action-cluster" aria-label="أزرار الحركة">
         <div class="shoulders"><button data-button="l1">L</button><button data-button="r1">R</button></div>
+        <div class="shoulders secondary-shoulders"><button data-button="l2">L2</button><button data-button="r2">R2</button></div>
         <div class="cluster-label">نفّذ</div>
         <div class="face-pad">
           <button class="face face-x" data-button="x" aria-label="X">X</button>
@@ -49,9 +57,10 @@
           <button class="face face-b" data-button="b" aria-label="B">B</button>
           <button class="face face-a" data-button="a" aria-label="A">A</button>
         </div>
+        <div class="small-buttons stick-buttons"><button data-button="l3">L3</button><button data-button="r3">R3</button></div>
       </section>
     </div>
-    <footer class="pad-footer"><span id="padStatus">متصل بالغرفة</span><span>اضغط باستمرار للحركة</span></footer>
+    <footer class="pad-footer"><span id="padStatus">متصل بالغرفة</span><span>اضغط باستمرار أو حرّك العصا</span></footer>
   </main>
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="/js/controller.js"></script>

@@ -5,6 +5,7 @@ export const ALLOWED_BUTTONS = new Set([
   "up", "down", "left", "right", "a", "b", "x", "y",
   "start", "select", "l1", "r1", "l2", "r2", "l3", "r3"
 ]);
+export const ALLOWED_AXES = new Set(["left-x", "left-y", "right-x", "right-y"]);
 
 export class RoomStore {
   rooms = new Map();
@@ -24,7 +25,8 @@ export class RoomStore {
       hostId,
       hostToken,
       players: new Map(),
-      pressed: new Map()
+      pressed: new Map(),
+      axes: new Map()
     });
     this.socketRooms.set(hostId, code);
     return { code, hostToken, players: [] };
@@ -60,6 +62,7 @@ export class RoomStore {
 
     room.players.set(socketId, member);
     room.pressed.set(socketId, new Set());
+    room.axes.set(socketId, new Map());
     this.socketRooms.set(socketId, room.code);
     return { ok: true, player, code: room.code, state: this.state(room) };
   }
@@ -70,7 +73,23 @@ export class RoomStore {
     const member = room?.players.get(socketId);
     if (!room || !member) return { ok: false, error: "غير مسجل كلاعب" };
 
-    const { button, pressed } = payload ?? {};
+    const { button, pressed, axis, value } = payload ?? {};
+    if (typeof axis === "string") {
+      if (!ALLOWED_AXES.has(axis) || typeof value !== "number" || !Number.isFinite(value) || value < -1 || value > 1) {
+        return { ok: false, error: "محور العصا غير صالح" };
+      }
+      const normalized = Math.abs(value) < 0.12 ? 0 : Math.round(value * 100) / 100;
+      const axisState = room.axes.get(socketId);
+      if (axisState.get(axis) === normalized) return { ok: true, changed: false };
+      axisState.set(axis, normalized);
+      return {
+        ok: true,
+        changed: true,
+        hostId: room.hostId,
+        event: { player: member.player, axis, value: normalized, at: Date.now() }
+      };
+    }
+
     if (!ALLOWED_BUTTONS.has(button) || typeof pressed !== "boolean") {
       return { ok: false, error: "مدخل غير صالح" };
     }
@@ -116,8 +135,12 @@ export class RoomStore {
       pressed: false,
       at: Date.now()
     }));
+    for (const [axis, value] of room.axes.get(socketId) ?? []) {
+      if (value !== 0) released.push({ player: member.player, axis, value: 0, at: Date.now() });
+    }
     room.players.delete(socketId);
     room.pressed.delete(socketId);
+    room.axes.delete(socketId);
     return { type: "left", code, hostId: room.hostId, released, state: this.state(room) };
   }
 }

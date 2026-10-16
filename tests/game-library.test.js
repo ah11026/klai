@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameLibrary, MAX_GAME_BYTES, gameLibraryValidation } from "../server/game-library.js";
+import { mapRemoteAxis, mapRemoteInput, RemoteInputState } from "../public/js/emulator-controls.js";
 
 const { validateGameFile, validateLicense, validateSource } = gameLibraryValidation;
 
@@ -22,6 +23,65 @@ test("GitHub source validation rejects traversal and only builds raw GitHub URLs
   assert.equal(source.url, "https://raw.githubusercontent.com/games/homebrew/main/releases/demo.nes");
   assert.throws(() => validateSource({ repository: "games/homebrew", branch: "main", filePath: "../secret.nes" }), /غير صالح/);
   assert.throws(() => validateSource({ repository: "https://evil.example/file", branch: "main", filePath: "game.nes" }), /owner\/repository/);
+});
+
+test("remote controller inputs map presses and releases even when assigned to player two", () => {
+  assert.deepEqual(mapRemoteInput({ player: 2, button: "a", pressed: true }), {
+    player: 1, index: 8, value: 1
+  });
+  assert.deepEqual(mapRemoteInput({ player: 2, button: "a", pressed: false }), {
+    player: 1, index: 8, value: 0
+  });
+  assert.equal(mapRemoteInput({ player: 2, button: "unknown", pressed: true }), null);
+  assert.deepEqual(mapRemoteInput({ player: 4, button: "right", pressed: true }), {
+    player: 3, index: 7, value: 1
+  });
+});
+
+test("each player input is independent and held controls are released on disconnect", () => {
+  const state = new RemoteInputState();
+  assert.deepEqual(state.apply({ player: 1, button: "bad", pressed: true }), []);
+  assert.deepEqual(state.apply({ player: 1, button: "a", pressed: true }), [{ player: 0, index: 8, value: 1 }]);
+  assert.deepEqual(state.apply({ player: 2, button: "a", pressed: true }), [{ player: 1, index: 8, value: 1 }]);
+  assert.deepEqual(state.apply({ player: 1, button: "a", pressed: true }), []);
+  assert.deepEqual(state.apply({ player: 1, button: "a", pressed: false }), [{ player: 0, index: 8, value: 0 }]);
+  state.apply({ player: 3, button: "up", pressed: true });
+  assert.deepEqual(state.releaseAll(), [
+    { player: 1, index: 8, value: 0 },
+    { player: 2, index: 4, value: 0 }
+  ]);
+});
+
+test("analog axes map both directions to EmulatorJS indexes and release cleanly", () => {
+  assert.deepEqual(mapRemoteAxis({ player: 2, axis: "left-x", value: 0.5 }), [
+    { player: 1, index: 16, value: 16384 },
+    { player: 1, index: 17, value: 0 }
+  ]);
+  assert.deepEqual(mapRemoteAxis({ player: 2, axis: "left-y", value: -1 }), [
+    { player: 1, index: 18, value: 0 },
+    { player: 1, index: 19, value: 32767 }
+  ]);
+  assert.equal(mapRemoteAxis({ player: 1, axis: "left-x", value: 1.5 }), null);
+
+  const state = new RemoteInputState();
+  state.apply({ player: 1, axis: "left-x", value: 0.6 });
+  assert.deepEqual(state.releaseAll(), [{ player: 0, index: 16, value: 0 }]);
+});
+
+test("all gamepad controls map to libretro indexes for each of four players", () => {
+  const expected = {
+    b: 0, y: 1, select: 2, start: 3,
+    up: 4, down: 5, left: 6, right: 7,
+    a: 8, x: 9, l1: 10, r1: 11,
+    l2: 12, r2: 13, l3: 14, r3: 15
+  };
+  for (let player = 1; player <= 4; player++) {
+    for (const [button, index] of Object.entries(expected)) {
+      assert.deepEqual(mapRemoteInput({ player, button, pressed: true }), {
+        player: player - 1, index, value: 1
+      });
+    }
+  }
 });
 
 test("saving a licensed game commits the binary and catalog to the configured branch", async () => {

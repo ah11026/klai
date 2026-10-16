@@ -1,8 +1,12 @@
+import { RemoteInputState } from "/js/emulator-controls.js";
+
 const cores = new Set(["nes", "snes", "n64", "psx"]);
 const params = new URLSearchParams(location.search);
 const system = params.get("system");
 const filePath = params.get("path");
 const status = document.querySelector("#status");
+const remoteInputs = new RemoteInputState();
+const pendingInputs = new Map();
 
 function fail(message) {
   status.textContent = message;
@@ -21,7 +25,12 @@ if (!cores.has(system) || !filePath?.startsWith(`public/games/${system}/`)) {
     window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
     window.EJS_startOnLoaded = true;
     window.EJS_backgroundColor = "#000000";
-    window.EJS_onGameStart = () => { status.textContent = ""; };
+    window.EJS_onGameStart = () => {
+      status.textContent = "";
+      for (const command of pendingInputs.values()) applyInput(command);
+      pendingInputs.clear();
+      window.parent.postMessage({ type: "emulator-ready" }, location.origin);
+    };
     window.EJS_onLoad = () => { status.textContent = "تم تحميل المحاكي."; };
 
     const loader = document.createElement("script");
@@ -31,34 +40,27 @@ if (!cores.has(system) || !filePath?.startsWith(`public/games/${system}/`)) {
   }
 }
 
-const keys = {
-  up: ["ArrowUp", "ArrowUp", 38],
-  down: ["ArrowDown", "ArrowDown", 40],
-  left: ["ArrowLeft", "ArrowLeft", 37],
-  right: ["ArrowRight", "ArrowRight", 39],
-  a: ["x", "KeyX", 88],
-  b: ["z", "KeyZ", 90],
-  x: ["s", "KeyS", 83],
-  y: ["a", "KeyA", 65],
-  start: ["Enter", "Enter", 13],
-  select: ["Shift", "ShiftLeft", 16],
-  l1: ["q", "KeyQ", 81],
-  r1: ["w", "KeyW", 87]
-};
+function applyInput(command) {
+  const simulateInput = window.EJS_emulator?.gameManager?.simulateInput;
+  if (typeof simulateInput !== "function") return false;
+  window.EJS_emulator.gameManager.simulateInput(command.player, command.index, command.value);
+  return true;
+}
 
 window.addEventListener("message", event => {
-  if (event.origin !== location.origin || event.data?.type !== "remote-game-input") return;
-  const input = event.data.detail;
-  if (input?.player !== 1) return;
-  const [key, code, keyCode] = keys[input.button] ?? [];
-  if (!key) return;
-  const type = input.pressed ? "keydown" : "keyup";
-  document.dispatchEvent(new KeyboardEvent(type, {
-    key,
-    code,
-    keyCode,
-    which: keyCode,
-    bubbles: true,
-    cancelable: true
-  }));
+  if (event.origin !== location.origin || event.source !== window.parent) return;
+  if (event.data?.type === "remote-input-release-all") {
+    for (const command of remoteInputs.releaseAll()) {
+      const key = `${command.player}:${command.index}`;
+      if (!applyInput(command)) pendingInputs.set(key, command);
+      else pendingInputs.delete(key);
+    }
+    return;
+  }
+  if (event.data?.type !== "remote-game-input") return;
+  for (const command of remoteInputs.apply(event.data.detail)) {
+    const key = `${command.player}:${command.index}`;
+    if (applyInput(command)) pendingInputs.delete(key);
+    else pendingInputs.set(key, command);
+  }
 });

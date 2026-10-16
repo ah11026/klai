@@ -53,3 +53,14 @@ button, input { font: inherit; }
 @media (max-width: 390px) { .gamepad { padding-inline: 15px; }.pad-body { gap: 9px; }.dpad { width: 150px; height: 150px; }.face-pad { width: 154px; height: 154px; }.face { width: 57px; height: 57px; }.small-buttons button { min-width: 65px; } }
 @media (max-height: 580px) and (orientation: landscape) { .gamepad { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: max(8px, env(safe-area-inset-bottom)); }.pad-header .controller-brand { font-size: 12px; }.pad-header .brand-mark { width: 22px; height: 22px; }.pad-body { width: min(100%, 650px); }.dpad { width: 132px; height: 132px; }.face-pad { width: 139px; height: 139px; }.face { width: 48px; height: 48px; }.cluster-label { margin-bottom: 4px; }.small-buttons { margin-top: 10px; }.shoulders { margin-bottom: 7px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+.movement-modes { width: 174px; margin: -5px 0 9px; padding: 3px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; background: #22231f; border-radius: 4px; }
+.movement-modes button { min-height: 27px; color: #92948a; background: transparent; border: 0; border-radius: 3px; font-size: 9px; }
+.movement-modes button.active { color: #171815; background: var(--lime); }
+.dpad[hidden], .analog-stick[hidden] { display: none; }
+.analog-stick { width: 174px; height: 174px; position: relative; overflow: hidden; touch-action: none; border: 1px solid #484a40; border-radius: 50%; background: radial-gradient(circle, #34362e 0 34%, #292a25 35% 66%, #20211e 67%); box-shadow: inset 0 0 0 7px #ffffff05; }
+.stick-ring { position: absolute; inset: 27%; border: 1px solid #ffffff16; border-radius: 50%; }
+.stick-knob { width: 60px; height: 60px; position: absolute; top: 50%; left: 50%; border: 1px solid #d4e7a680; border-radius: 50%; background: #b2df5938; box-shadow: 0 3px 10px #0008, inset 0 1px #ffffff55; pointer-events: none; }
+.secondary-shoulders { margin-top: -13px; margin-bottom: 14px; }
+.stick-buttons { margin-top: 12px; }
+@media (max-width: 390px) { .movement-modes { width: 150px; }.analog-stick { width: 150px; height: 150px; } }
+@media (max-height: 580px) and (orientation: landscape) { .movement-modes { width: 132px; }.analog-stick { width: 132px; height: 132px; } }
