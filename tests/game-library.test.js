@@ -106,6 +106,41 @@ test("GitHub repository imports stream to a release when the source omits Conten
   assert.deepEqual(uploaded, bytes);
 });
 
+test("private same-repository imports use authenticated Contents API", async () => {
+  const bytes = Buffer.from([9, 8, 7, 6]);
+  let importedRequest;
+  let uploaded = Buffer.alloc(0);
+  const fetcher = async (url, options = {}) => {
+    if (String(url).includes("/contents/public/games/nds/homebrew.nds?ref=main")) {
+      importedRequest = { url: String(url), headers: options.headers };
+      return new Response(bytes);
+    }
+    if (String(url).endsWith("/releases")) {
+      return Response.json({ id: 31, upload_url: "https://uploads.github.com/repos/owner/private/releases/31/assets{?name,label}" });
+    }
+    if (String(url).startsWith("https://uploads.github.com/")) {
+      const chunks = [];
+      for await (const chunk of options.body) chunks.push(Buffer.from(chunk));
+      uploaded = Buffer.concat(chunks);
+      return Response.json({ id: 101 });
+    }
+    throw new Error(`Unexpected GitHub request: ${url}`);
+  };
+  const library = new GameLibrary({ token: "private-token", repository: "owner/private", fetcher });
+  await library.importFromRepository({
+    name: "Homebrew DS",
+    system: "nds",
+    license: "MIT",
+    licenseUrl: "https://example.org/license",
+    repository: "owner/private",
+    branch: "main",
+    filePath: "public/games/nds/homebrew.nds"
+  });
+  assert.equal(importedRequest.headers.Authorization, "Bearer private-token");
+  assert.equal(importedRequest.headers.Accept, "application/vnd.github.raw+json");
+  assert.deepEqual(uploaded, bytes);
+});
+
 test("private release listings use the app download proxy instead of exposing GitHub assets", async () => {
   const game = {
     id: "game-id",

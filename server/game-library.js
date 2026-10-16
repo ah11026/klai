@@ -251,9 +251,18 @@ export class GameLibrary {
   async importFromRepository(input) {
     const source = validateSource(input);
     const filename = path.posix.basename(source.filePath);
-    const response = await this.fetcher(source.url, {
+    const isConfiguredRepository = source.repository.toLowerCase() === this.repository.toLowerCase();
+    const sourceUrl = isConfiguredRepository
+      ? `https://api.github.com/repos/${this.repository}/contents/${source.filePath.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(source.branch)}`
+      : source.url;
+    const response = await this.fetcher(sourceUrl, {
       redirect: "error",
-      headers: { "User-Agent": "Klai-Game-Library" },
+      headers: isConfiguredRepository ? {
+        Accept: "application/vnd.github.raw+json",
+        Authorization: `Bearer ${this.token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "Klai-Game-Library"
+      } : { "User-Agent": "Klai-Game-Library" },
       signal: AbortSignal.timeout(30000)
     });
     if (!response.ok || !response.body) fail("تعذر تنزيل الملف من المستودع المحدد", 400);
