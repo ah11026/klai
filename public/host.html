@@ -34,7 +34,7 @@
             <p class="screen-note" id="gameStatus">المحاكي وملفات الألعاب تُضاف بشكل مستقل.</p>
           </div>
           <div class="input-readout" id="inputReadout" aria-live="polite">بانتظار أزرار اللاعبين</div>
-          <iframe id="emulatorFrame" title="محاكي اللعبة" hidden allow="autoplay; fullscreen" allowfullscreen></iframe>
+          <iframe id="emulatorFrame" title="محاكي اللعبة" hidden allow="autoplay; fullscreen" referrerpolicy="no-referrer" allowfullscreen></iframe>
         </div>
         <div class="stage-footer"><span>إدخال مباشر</span><span class="latency-indicator"><i></i><i></i><i></i><i></i></span><span>اتصال محلي</span></div>
       </div>
@@ -46,7 +46,8 @@
           <button class="system-item" data-system="SNES" data-core="snes"><span class="system-number">02</span><span class="system-name">Super <b>Nintendo</b></span><span class="system-status">EmulatorJS · snes9x <i>↗</i></span></button>
           <button class="system-item" data-system="N64" data-core="n64"><span class="system-number">03</span><span class="system-name">Nintendo <b>64</b></span><span class="system-status">EmulatorJS · mupen64plus <i>↗</i></span></button>
           <button class="system-item" data-system="PS1" data-core="psx"><span class="system-number">04</span><span class="system-name">PlayStation <b>1</b></span><span class="system-status">EmulatorJS · pcsx_rearmed <i>↗</i></span></button>
-          <div class="system-item system-unavailable" aria-disabled="true"><span class="system-number">05</span><span class="system-name">PlayStation <b>2</b></span><span class="system-status">غير مدعوم في مشغل الويب حالياً</span></div>
+          <button class="system-item" data-system="NDS" data-core="nds"><span class="system-number">05</span><span class="system-name">Nintendo <b>DS</b></span><span class="system-status">EmulatorJS · melonDS <i>↗</i></span></button>
+          <div class="system-item system-unavailable" aria-disabled="true"><span class="system-number">06</span><span class="system-name">PlayStation <b>2</b></span><span class="system-status">غير مدعوم في مشغل الويب حالياً</span></div>
         </div>
       </section>
 
@@ -69,14 +70,14 @@
             <div class="form-grid">
               <label class="field">اسم اللعبة<input id="gameName" maxlength="80" required placeholder="اسم اللعبة"></label>
               <label class="field">النظام
-                <select id="gameSystem"><option value="nes">NES</option><option value="snes">SNES</option><option value="n64">Nintendo 64</option><option value="psx">PlayStation 1</option></select>
+                <select id="gameSystem"><option value="nes">NES</option><option value="snes">SNES</option><option value="n64">Nintendo 64</option><option value="psx">PlayStation 1</option><option value="nds">Nintendo DS</option></select>
               </label>
               <label class="field">الترخيص<input id="gameLicense" maxlength="100" required placeholder="مثال: MIT أو CC BY 4.0"></label>
               <label class="field">رابط نص الترخيص<input id="gameLicenseUrl" type="url" required placeholder="https://..."></label>
             </div>
             <div class="library-source-panel" id="uploadPanel">
-              <label class="field full-field">ملف اللعبة (حتى 15 ميغابايت)
-                <input id="gameFile" type="file" accept=".nes,.sfc,.smc,.n64,.z64,.v64,.bin,.cue,.iso,.chd,.pbp">
+              <label class="field full-field">ملف اللعبة (حتى 250 ميغابايت)
+                <input id="gameFile" type="file" accept=".nes,.sfc,.smc,.n64,.z64,.v64,.bin,.cue,.iso,.chd,.pbp,.nds">
               </label>
               <button class="primary-action" id="uploadGame" type="button">رفع وحفظ في GitHub</button>
             </div>

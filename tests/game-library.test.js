@@ -1,21 +1,175 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GameLibrary, MAX_GAME_BYTES, gameLibraryValidation } from "../server/game-library.js";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { GameLibrary, MAX_GAME_BYTES, UPLOAD_CHUNK_BYTES, gameLibraryValidation } from "../server/game-library.js";
 import { mapRemoteAxis, mapRemoteInput, RemoteInputState } from "../public/js/emulator-controls.js";
 
 const { validateGameFile, validateLicense, validateSource } = gameLibraryValidation;
 
 test("game uploads accept only extensions belonging to their selected system", () => {
   assert.equal(validateGameFile("nes", "homebrew.NES", Buffer.from([1])), ".nes");
+  assert.equal(validateGameFile("nds", "homebrew.nds", 1), ".nds");
   assert.throws(() => validateGameFile("nes", "game.exe", Buffer.from([1])), /لا يناسب النظام/);
   assert.throws(() => validateGameFile("unknown", "game.nes", Buffer.from([1])), /غير مدعوم/);
 });
 
-test("game uploads require a secure license reference and enforce the file size cap", () => {
+test("large uploads use ordered chunks and accept Nintendo DS files", async () => {
+  const library = new GameLibrary({ token: "test", repository: "owner/games" });
+  const session = await library.startUpload({
+    name: "Homebrew DS",
+    system: "nds",
+    license: "MIT",
+    licenseUrl: "https://example.org/license",
+    filename: "homebrew.nds",
+    size: 3
+  });
+  assert.equal(session.chunkSize, UPLOAD_CHUNK_BYTES);
+  await assert.rejects(library.writeUploadChunk(session.uploadId, 1, Buffer.from([1, 2, 3])), /ترتيب أجزاء/);
+  assert.deepEqual(await library.writeUploadChunk(session.uploadId, 0, Buffer.from([1, 2, 3])), {
+    received: 3,
+    total: 3
+  });
+  await library.discardUpload(session.uploadId);
+  assert.equal(library.pendingUploads.size, 0);
+});
+
+test("large Nintendo DS files are streamed as GitHub Release assets, not Git blobs", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "klai-release-test-"));
+  const temporaryPath = path.join(directory, "homebrew.nds");
+  const file = Buffer.from([1, 2, 3, 4]);
+  await writeFile(temporaryPath, file);
+  let uploaded = Buffer.alloc(0);
+  const fetcher = async (url, options = {}) => {
+    if (String(url).startsWith("https://api.github.com/") && String(url).endsWith("/releases")) {
+      return Response.json({
+        id: 17,
+        upload_url: "https://uploads.github.com/repos/owner/games/releases/17/assets{?name,label}"
+      });
+    }
+    if (String(url).startsWith("https://uploads.github.com/")) {
+      const chunks = [];
+      for await (const chunk of options.body) chunks.push(Buffer.from(chunk));
+      uploaded = Buffer.concat(chunks);
+      return Response.json({ id: 99, name: new URL(url).searchParams.get("name") });
+    }
+    throw new Error(`Unexpected GitHub request: ${url}`);
+  };
+  const library = new GameLibrary({ token: "test-token", repository: "owner/games", fetcher });
+  try {
+    const game = await library.saveReleaseFile({
+      name: "Homebrew DS",
+      system: "nds",
+      license: "MIT",
+      licenseUrl: "https://example.org/license",
+      filename: "homebrew.nds"
+    }, temporaryPath, file.length);
+
+    assert.equal(game.storage, "github-release");
+    assert.equal(game.assetName.endsWith(".nds"), true);
+    assert.deepEqual(uploaded, file);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("GitHub repository imports stream to a release when the source omits Content-Length", async () => {
+  const bytes = Buffer.from([5, 4, 3, 2, 1]);
+  let uploaded = Buffer.alloc(0);
+  const fetcher = async (url, options = {}) => {
+    if (String(url).startsWith("https://raw.githubusercontent.com/owner/source/")) {
+      return new Response(bytes);
+    }
+    if (String(url).startsWith("https://api.github.com/") && String(url).endsWith("/releases")) {
+      return Response.json({ id: 18, upload_url: "https://uploads.github.com/repos/owner/library/releases/18/assets{?name,label}" });
+    }
+    if (String(url).startsWith("https://uploads.github.com/")) {
+      const chunks = [];
+      for await (const chunk of options.body) chunks.push(Buffer.from(chunk));
+      uploaded = Buffer.concat(chunks);
+      return Response.json({ id: 100 });
+    }
+    throw new Error(`Unexpected GitHub request: ${url}`);
+  };
+  const library = new GameLibrary({ token: "test-token", repository: "owner/library", fetcher });
+  const game = await library.importFromRepository({
+    name: "Homebrew DS",
+    system: "nds",
+    license: "MIT",
+    licenseUrl: "https://example.org/license",
+    repository: "owner/source",
+    branch: "main",
+    filePath: "games/homebrew.nds"
+  });
+  assert.equal(game.sourceRepository, "owner/source");
+  assert.deepEqual(uploaded, bytes);
+});
+
+test("private release listings use the app download proxy instead of exposing GitHub assets", async () => {
+  const game = {
+    id: "game-id",
+    name: "Private DS",
+    system: "nds",
+    license: "MIT",
+    licenseUrl: "https://example.org/license",
+    releaseTag: "klai-game-id",
+    assetName: "private-ds.nds",
+    storage: "github-release"
+  };
+  const fetcher = async url => {
+    if (url.includes("contents/public/games/catalog.json")) {
+      return Response.json({ message: "Not Found" }, { status: 404 });
+    }
+    if (url.endsWith("releases?per_page=100&page=1")) {
+      return Response.json([{ tag_name: game.releaseTag, body: JSON.stringify(game), assets: [{ name: game.assetName }] }]);
+    }
+    throw new Error(`Unexpected GitHub request: ${url}`);
+  };
+  const library = new GameLibrary({ token: "test-token", repository: "owner/private-games", fetcher });
+  const result = await library.list();
+  assert.equal(result.games[0].downloadUrl, "/api/games/game-id/download");
+});
+
+test("private GitHub Release downloads use authenticated asset API responses", async () => {
+  const game = {
+    id: "private-game-id",
+    name: "Private DS",
+    system: "nds",
+    releaseTag: "klai-game-private-game-id",
+    assetName: "private-ds.nds",
+    storage: "github-release"
+  };
+  const bytes = Buffer.from([8, 7, 6]);
+  const fetcher = async (url, options = {}) => {
+    if (url.includes("contents/public/games/catalog.json")) {
+      return Response.json({ message: "Not Found" }, { status: 404 });
+    }
+    if (url.endsWith("releases?per_page=100&page=1")) {
+      return Response.json([{ tag_name: game.releaseTag, body: JSON.stringify(game), assets: [{ name: game.assetName }] }]);
+    }
+    if (url.endsWith(`/releases/tags/${game.releaseTag}`)) {
+      return Response.json({ assets: [{ id: 22, name: game.assetName }] });
+    }
+    if (url.endsWith("/releases/assets/22")) {
+      assert.equal(options.headers.Accept, "application/octet-stream");
+      assert.equal(options.headers.Authorization, "Bearer test-token");
+      return new Response(bytes);
+    }
+    throw new Error(`Unexpected GitHub request: ${url}`);
+  };
+  const library = new GameLibrary({ token: "test-token", repository: "owner/private-games", fetcher });
+  const result = await library.getGameDownload(game.id);
+  assert.equal(result.game.id, game.id);
+  assert.deepEqual(Buffer.from(await result.response.arrayBuffer()), bytes);
+});
+
+test("game uploads require a secure license reference and enforce the 250 MB file size cap", () => {
   assert.equal(validateLicense("MIT", "https://example.org/license").license, "MIT");
   assert.throws(() => validateLicense("", "https://example.org/license"), /اذكر ترخيص/);
   assert.throws(() => validateLicense("MIT", "http://example.org/license"), /HTTPS/);
-  assert.throws(() => validateGameFile("nes", "game.nes", Buffer.alloc(MAX_GAME_BYTES + 1)), /15 ميغابايت/);
+  assert.equal(MAX_GAME_BYTES, 250 * 1024 * 1024);
+  assert.throws(() => validateGameFile("nes", "game.nes", MAX_GAME_BYTES + 1), /250 ميغابايت/);
 });
 
 test("GitHub source validation rejects traversal and only builds raw GitHub URLs", () => {

@@ -1,12 +1,13 @@
 import express from "express";
 import http from "node:http";
 import path from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { Server } from "socket.io";
 import QRCode from "qrcode";
 import { RoomStore } from "./rooms.js";
-import { GameLibrary, MAX_GAME_BYTES } from "./game-library.js";
+import { GameLibrary, MAX_GAME_BYTES, UPLOAD_CHUNK_BYTES } from "./game-library.js";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -21,11 +22,12 @@ const rooms = new RoomStore();
 const gameLibrary = new GameLibrary();
 const inputTimes = new Map();
 
+app.use("/games", (_request, response) => response.sendStatus(404));
 app.use(express.static(path.join(directory, "../public")));
 app.get("/", (_request, response) => response.redirect(302, "/host.html"));
 app.get("/health", (_request, response) => response.status(200).json({ ok: true }));
 
-app.get("/api/games", async (_request, response) => {
+app.get("/api/games", requireGameLibraryAdmin, async (_request, response) => {
   try {
     response.json(await gameLibrary.list());
   } catch (error) {
@@ -50,22 +52,40 @@ function requireGameLibraryAdmin(request, response, next) {
   next();
 }
 
-app.post("/api/games/upload", requireGameLibraryAdmin,
-  express.raw({ type: "application/octet-stream", limit: `${MAX_GAME_BYTES}b` }),
+app.post("/api/games/upload/start", requireGameLibraryAdmin, express.json({ limit: "16kb" }),
   async (request, response) => {
     try {
-      const name = String(request.query.name ?? "");
-      const system = String(request.query.system ?? "");
-      const license = String(request.query.license ?? "");
-      const licenseUrl = String(request.query.licenseUrl ?? "");
-      const filename = String(request.query.filename ?? "");
-      const game = await gameLibrary.upload({ name, system, license, licenseUrl, filename }, request.body);
-      response.status(201).json({ game });
+      response.status(201).json(await gameLibrary.startUpload(request.body ?? {}));
     } catch (error) {
       response.status(error.status || 502).json({ error: error.message });
     }
   }
 );
+
+app.put("/api/games/upload/:uploadId/chunks/:index", requireGameLibraryAdmin,
+  express.raw({ type: "application/octet-stream", limit: `${UPLOAD_CHUNK_BYTES}b` }),
+  async (request, response) => {
+    try {
+      response.json(await gameLibrary.writeUploadChunk(request.params.uploadId, Number(request.params.index), request.body));
+    } catch (error) {
+      response.status(error.status || 502).json({ error: error.message });
+    }
+  }
+);
+
+app.post("/api/games/upload/:uploadId/finish", requireGameLibraryAdmin, async (request, response) => {
+  try {
+    const game = await gameLibrary.finishUpload(request.params.uploadId);
+    response.status(201).json({ game });
+  } catch (error) {
+    response.status(error.status || 502).json({ error: error.message });
+  }
+});
+
+app.delete("/api/games/upload/:uploadId", requireGameLibraryAdmin, async (request, response) => {
+  await gameLibrary.discardUpload(request.params.uploadId);
+  response.sendStatus(204);
+});
 
 app.post("/api/games/import", requireGameLibraryAdmin, express.json({ limit: "16kb" }),
   async (request, response) => {
@@ -77,6 +97,59 @@ app.post("/api/games/import", requireGameLibraryAdmin, express.json({ limit: "16
     }
   }
 );
+
+function makeGameDownloadTicket(gameId) {
+  const payload = Buffer.from(JSON.stringify({ gameId, expiresAt: Date.now() + 10 * 60 * 1000 })).toString("base64url");
+  const signature = createHmac("sha256", process.env.GAME_LIBRARY_ADMIN_KEY).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function validGameDownloadTicket(gameId, ticket) {
+  if (!process.env.GAME_LIBRARY_ADMIN_KEY || typeof ticket !== "string") return false;
+  const [payload, signature] = ticket.split(".");
+  if (!payload || !signature) return false;
+  const expected = createHmac("sha256", process.env.GAME_LIBRARY_ADMIN_KEY).update(payload).digest();
+  let supplied;
+  try {
+    supplied = Buffer.from(signature, "base64url");
+  } catch {
+    return false;
+  }
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return data.gameId === gameId && Number.isFinite(data.expiresAt) && data.expiresAt > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+app.post("/api/games/:id/download-ticket", requireGameLibraryAdmin, async (request, response) => {
+  try {
+    const game = await gameLibrary.findGame(request.params.id);
+    if (!game) return response.status(404).json({ error: "اللعبة غير موجودة" });
+    response.json({ url: `/api/games/${encodeURIComponent(game.id)}/download?ticket=${encodeURIComponent(makeGameDownloadTicket(game.id))}` });
+  } catch (error) {
+    response.status(error.status || 502).json({ error: error.message });
+  }
+});
+
+app.get("/api/games/:id/download", async (request, response) => {
+  if (!validGameDownloadTicket(request.params.id, request.query.ticket)) {
+    return response.status(403).json({ error: "رابط التنزيل غير صالح أو انتهت صلاحيته" });
+  }
+  try {
+    const { game, response: upstream } = await gameLibrary.getGameDownload(request.params.id);
+    response.setHeader("Content-Type", "application/octet-stream");
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(game.assetName || path.basename(game.path))}`);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    if (upstream.headers.get("content-length")) response.setHeader("Content-Length", upstream.headers.get("content-length"));
+    Readable.fromWeb(upstream.body).on("error", () => response.destroy()).pipe(response);
+  } catch (error) {
+    response.status(error.status || 502).json({ error: error.message });
+  }
+});
 
 app.get("/api/rooms/:code/qr", async (request, response) => {
   const { code } = request.params;

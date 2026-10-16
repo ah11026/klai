@@ -19,6 +19,7 @@ const emulatorFrame = document.querySelector("#emulatorFrame");
 let hostToken = "";
 let toastTimeout;
 let emulatorReady = false;
+let pendingEmulatorGameUrl = "";
 const pendingEmulatorMessages = [];
 
 function sendEmulatorMessage(message) {
@@ -34,7 +35,17 @@ function sendEmulatorMessage(message) {
 }
 
 window.addEventListener("message", event => {
-  if (event.origin !== location.origin || event.source !== emulatorFrame.contentWindow || event.data?.type !== "emulator-ready") return;
+  if (event.origin !== location.origin || event.source !== emulatorFrame.contentWindow) return;
+  if (event.data?.type === "emulator-init" && pendingEmulatorGameUrl) {
+    emulatorFrame.contentWindow.postMessage({
+      type: "emulator-config",
+      system: emulatorFrame.dataset.system,
+      gameUrl: pendingEmulatorGameUrl
+    }, location.origin);
+    pendingEmulatorGameUrl = "";
+    return;
+  }
+  if (event.data?.type !== "emulator-ready") return;
   emulatorReady = true;
   while (pendingEmulatorMessages.length) {
     emulatorFrame.contentWindow.postMessage(pendingEmulatorMessages.shift(), location.origin);
@@ -123,11 +134,17 @@ function renderLibrary(data) {
 
     const download = document.createElement("a");
     download.className = "download-game";
-    download.href = game.downloadUrl;
-    download.target = "_blank";
-    download.rel = "noopener noreferrer";
+    download.href = "#";
     download.textContent = "تنزيل";
     download.setAttribute("aria-label", `تنزيل ${game.name}`);
+    download.addEventListener("click", async event => {
+      event.preventDefault();
+      try {
+        location.assign(await getGameDownloadUrl(game.id));
+      } catch (error) {
+        libraryStatus.textContent = error.message;
+      }
+    });
 
     const actions = document.createElement("div");
     actions.className = "library-game-actions";
@@ -142,25 +159,51 @@ function renderLibrary(data) {
   }
 }
 
-function launchGame(game) {
-  if (!/^public\/games\/(nes|snes|n64|psx)\//.test(game.path)) {
-    libraryStatus.textContent = "مسار اللعبة أو نظامها غير مدعوم.";
+async function getGameDownloadUrl(gameId) {
+  if (!libraryKey.value) throw new Error("أدخل مفتاح إدارة المكتبة أولاً.");
+  const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/download-ticket`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${libraryKey.value}` }
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "تعذر تجهيز تنزيل اللعبة");
+  return new URL(result.url, location.origin).toString();
+}
+
+async function launchGame(game) {
+  if (!new Set(["nes", "snes", "n64", "psx", "nds"]).has(game.system)) {
+    libraryStatus.textContent = "نظام اللعبة غير مدعوم.";
     return;
   }
-  const url = new URL("/emulator.html", location.origin);
-  url.searchParams.set("system", game.system);
-  url.searchParams.set("path", game.path);
-  emulatorReady = false;
-  pendingEmulatorMessages.length = 0;
-  document.querySelector("#gameScreen .screen-content").hidden = true;
-  emulatorFrame.hidden = false;
-  emulatorFrame.src = url.toString();
-  gameStatus.textContent = `جارٍ تشغيل ${game.name} عبر EmulatorJS...`;
+  try {
+    const downloadUrl = await getGameDownloadUrl(game.id);
+    const url = new URL("/emulator.html", location.origin);
+    url.searchParams.set("system", game.system);
+    pendingEmulatorGameUrl = downloadUrl;
+    emulatorReady = false;
+    pendingEmulatorMessages.length = 0;
+    document.querySelector("#gameScreen .screen-content").hidden = true;
+    emulatorFrame.hidden = false;
+    emulatorFrame.dataset.system = game.system;
+    emulatorFrame.src = url.toString();
+    gameStatus.textContent = `جارٍ تشغيل ${game.name} عبر EmulatorJS...`;
+  } catch (error) {
+    libraryStatus.textContent = error.message;
+  }
 }
 
 async function refreshLibrary() {
+  if (!libraryKey.value) {
+    libraryList.replaceChildren();
+    const empty = document.createElement("li");
+    empty.className = "library-empty";
+    empty.textContent = "أدخل مفتاح إدارة المكتبة لعرض ألعاب المستودع الخاص.";
+    libraryList.append(empty);
+    return;
+  }
   try {
-    const response = await fetch("/api/games");
+    const headers = libraryKey.value ? { Authorization: `Bearer ${libraryKey.value}` } : {};
+    const response = await fetch("/api/games", { headers });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "تعذر تحميل المكتبة");
     renderLibrary(result);
@@ -211,17 +254,71 @@ document.querySelector("#uploadGame").addEventListener("click", event => {
     libraryStatus.textContent = "اختر ملف اللعبة أولاً.";
     return;
   }
-  if (file.size > 15 * 1024 * 1024) {
-    libraryStatus.textContent = "حجم الملف يتجاوز الحد الأقصى البالغ 15 ميغابايت.";
+  if (file.size > 250 * 1024 * 1024) {
+    libraryStatus.textContent = "حجم الملف يتجاوز الحد الأقصى البالغ 250 ميغابايت.";
     return;
   }
-  const query = new URLSearchParams({ ...readGameMetadata(), filename: file.name });
-  sendLibraryRequest(`/api/games/upload?${query}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/octet-stream" },
-    body: file
-  }, event.currentTarget);
+  uploadGameInChunks(file, readGameMetadata(), event.currentTarget);
 });
+
+async function uploadGameInChunks(file, metadata, button) {
+  if (!libraryKey.value) {
+    libraryStatus.textContent = "أدخل مفتاح إدارة المكتبة أولاً.";
+    return;
+  }
+  button.disabled = true;
+  let uploadId;
+  const headers = {
+    Authorization: `Bearer ${libraryKey.value}`,
+    "Content-Type": "application/json"
+  };
+  try {
+    libraryStatus.textContent = "جارٍ تجهيز الرفع المجزأ...";
+    const startResponse = await fetch("/api/games/upload/start", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...metadata, filename: file.name, size: file.size })
+    });
+    const startResult = await startResponse.json();
+    if (!startResponse.ok) throw new Error(startResult.error || "تعذر بدء الرفع");
+    uploadId = startResult.uploadId;
+
+    for (let index = 0; index < startResult.totalChunks; index += 1) {
+      const start = index * startResult.chunkSize;
+      const chunk = file.slice(start, Math.min(file.size, start + startResult.chunkSize));
+      const chunkResponse = await fetch(`/api/games/upload/${encodeURIComponent(uploadId)}/chunks/${index}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${libraryKey.value}`, "Content-Type": "application/octet-stream" },
+        body: chunk
+      });
+      const chunkResult = await chunkResponse.json();
+      if (!chunkResponse.ok) throw new Error(chunkResult.error || "تعذر رفع جزء من الملف");
+      const progress = Math.round(chunkResult.received / chunkResult.total * 100);
+      libraryStatus.textContent = `جارٍ رفع اللعبة إلى GitHub Releases: ${progress}%`;
+    }
+
+    const finishResponse = await fetch(`/api/games/upload/${encodeURIComponent(uploadId)}/finish`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${libraryKey.value}` }
+    });
+    const finishResult = await finishResponse.json();
+    if (!finishResponse.ok) throw new Error(finishResult.error || "تعذر إنهاء الرفع");
+    libraryStatus.textContent = `اكتمل رفع «${finishResult.game.name}» إلى GitHub Releases.`;
+    await refreshLibrary();
+  } catch (error) {
+    libraryStatus.textContent = error.message;
+    if (uploadId) {
+      await fetch(`/api/games/upload/${encodeURIComponent(uploadId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${libraryKey.value}` }
+      }).catch(() => {});
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+libraryKey.addEventListener("change", refreshLibrary);
 
 document.querySelector("#importGame").addEventListener("click", event => {
   const payload = {
