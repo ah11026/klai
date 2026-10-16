@@ -15,6 +15,7 @@ const toast = document.querySelector("#toast");
 const libraryList = document.querySelector("#libraryList");
 const libraryStatus = document.querySelector("#libraryStatus");
 const libraryKey = document.querySelector("#libraryKey");
+const emulatorFrame = document.querySelector("#emulatorFrame");
 let hostToken = "";
 let toastTimeout;
 
@@ -105,9 +106,32 @@ function renderLibrary(data) {
     download.rel = "noopener noreferrer";
     download.textContent = "تنزيل";
     download.setAttribute("aria-label", `تنزيل ${game.name}`);
-    item.append(details, download);
+
+    const actions = document.createElement("div");
+    actions.className = "library-game-actions";
+    const play = document.createElement("button");
+    play.className = "play-game";
+    play.type = "button";
+    play.textContent = "تشغيل";
+    play.addEventListener("click", () => launchGame(game));
+    actions.append(play, download);
+    item.append(details, actions);
     libraryList.append(item);
   }
+}
+
+function launchGame(game) {
+  if (!/^public\/games\/(nes|snes|n64|psx)\//.test(game.path)) {
+    libraryStatus.textContent = "مسار اللعبة أو نظامها غير مدعوم.";
+    return;
+  }
+  const url = new URL("/emulator.html", location.origin);
+  url.searchParams.set("system", game.system);
+  url.searchParams.set("path", game.path);
+  document.querySelector("#gameScreen .screen-content").hidden = true;
+  emulatorFrame.hidden = false;
+  emulatorFrame.src = url.toString();
+  gameStatus.textContent = `جارٍ تشغيل ${game.name} عبر EmulatorJS...`;
 }
 
 async function refreshLibrary() {
@@ -148,7 +172,7 @@ async function sendLibraryRequest(url, options, button) {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "تعذر حفظ اللعبة");
-    libraryStatus.textContent = `حُفظت «${result.game.name}» في مستودعك. تشغيل اللعبة يحتاج دمج محاكي.`;
+    libraryStatus.textContent = `حُفظت «${result.game.name}» في مستودعك.`;
     await refreshLibrary();
   } catch (error) {
     libraryStatus.textContent = error.message;
@@ -228,6 +252,7 @@ socket.on("game:input", event => {
   const action = event.pressed ? "ضغط" : "أفلت";
   inputReadout.textContent = `P${event.player} · ${action} ${event.button}`;
   window.dispatchEvent(new CustomEvent("remote-game-input", { detail: event }));
+  emulatorFrame.contentWindow?.postMessage({ type: "remote-game-input", detail: event }, location.origin);
 });
 
 socket.on("room:closed", () => {
@@ -240,7 +265,7 @@ document.querySelectorAll("[data-system]").forEach(button => {
     document.querySelector(".system-item.selected")?.classList.remove("selected");
     button.classList.add("selected");
     document.querySelector("#gameSystem").value = button.dataset.core;
-    gameStatus.textContent = `تم اختيار ${button.dataset.system}. أضف نواة المحاكي وملف اللعبة لبدء التشغيل.`;
+    gameStatus.textContent = `تم اختيار ${button.dataset.system}. اختر لعبة من المكتبة واضغط «تشغيل».`;
   });
 });
 

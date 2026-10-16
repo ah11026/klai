@@ -35,6 +35,9 @@ h1, h2, p { margin-top: 0; }
 .frame-label .live-dot { width: 6px; height: 6px; }
 .frame-size { direction: ltr; font: 10px sans-serif; }
 .emulator-screen { min-height: 340px; position: relative; overflow: hidden; display: grid; place-items: center; background: #20211e; color: var(--paper); text-align: center; }
+.emulator-screen > iframe { width: 100%; height: 100%; position: absolute; inset: 0; z-index: 2; border: 0; background: #000; }
+.emulator-screen > iframe[hidden] { display: none; }
+.screen-content[hidden] { display: none; }
 .screen-orbit { position: absolute; border: 1px solid #ffffff12; border-radius: 50%; transform: rotate(-25deg); }
 .orbit-one { width: min(68vw, 570px); height: 190px; }
 .orbit-two { width: min(54vw, 450px); height: 270px; transform: rotate(35deg); }
@@ -57,6 +60,7 @@ h1, h2, p { margin-top: 0; }
 .system-item { min-height: 74px; position: relative; padding: 12px 14px; display: grid; grid-template-columns: 30px 1fr auto; grid-template-rows: 1fr 1fr; align-items: center; text-align: right; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; transition: border-color .18s, transform .18s, background .18s; }
 .system-item:hover { transform: translateY(-2px); border-color: #9b9c92; }
 .system-item.selected { border-color: var(--orange); box-shadow: inset -3px 0 var(--orange); }
+.system-unavailable { cursor: not-allowed; opacity: .58; }
 .system-number { grid-row: 1 / 3; color: #9b9d91; font: 10px sans-serif; direction: ltr; }
 .system-name { font-size: 12px; }
 .system-name b { font-weight: 700; }
@@ -106,6 +110,9 @@ h1, h2, p { margin-top: 0; }
 .library-game-details span { color: var(--muted); font-size: 10px; }
 .download-game { min-width: 58px; padding: 7px 10px; color: var(--ink); background: var(--green); border-radius: 3px; text-align: center; text-decoration: none; font-size: 10px; font-weight: 600; }
 .download-game:hover { background: #95c53a; }
+.library-game-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.play-game { min-width: 58px; padding: 7px 10px; color: white; background: var(--ink); border: 0; border-radius: 3px; cursor: pointer; font: inherit; font-size: 10px; }
+.play-game:hover { background: #3b3d35; }
 .library-manager { margin-top: 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }
 .library-manager summary { padding: 12px 14px; color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 600; }
 .manager-body { padding: 14px; border-top: 1px solid var(--line); }

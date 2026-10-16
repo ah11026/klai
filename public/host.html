@@ -34,6 +34,7 @@
             <p class="screen-note" id="gameStatus">المحاكي وملفات الألعاب تُضاف بشكل مستقل.</p>
           </div>
           <div class="input-readout" id="inputReadout" aria-live="polite">بانتظار أزرار اللاعبين</div>
+          <iframe id="emulatorFrame" title="محاكي اللعبة" hidden allow="autoplay; fullscreen" allowfullscreen></iframe>
         </div>
         <div class="stage-footer"><span>إدخال مباشر</span><span class="latency-indicator"><i></i><i></i><i></i><i></i></span><span>اتصال محلي</span></div>
       </div>
@@ -41,10 +42,11 @@
       <section class="systems-section">
         <div class="section-heading"><div><p class="eyebrow">مكتبة الأنظمة</p><h2>وش نلعب؟</h2></div><span class="small-note">اختر نظامك لتجهيز مساحة اللعب</span></div>
         <div class="system-grid">
-          <button class="system-item selected" data-system="NES" data-core="nes"><span class="system-number">01</span><span class="system-name">Nintendo <b>NES</b></span><span class="system-status">جاهز للربط <i>↗</i></span></button>
-          <button class="system-item" data-system="SNES" data-core="snes"><span class="system-number">02</span><span class="system-name">Super <b>Nintendo</b></span><span class="system-status">جاهز للربط <i>↗</i></span></button>
-          <button class="system-item" data-system="N64" data-core="n64"><span class="system-number">03</span><span class="system-name">Nintendo <b>64</b></span><span class="system-status">ربط المحاكي مطلوب <i>↗</i></span></button>
-          <button class="system-item" data-system="PS1" data-core="psx"><span class="system-number">04</span><span class="system-name">PlayStation <b>1</b></span><span class="system-status">ربط المحاكي مطلوب <i>↗</i></span></button>
+          <button class="system-item selected" data-system="NES" data-core="nes"><span class="system-number">01</span><span class="system-name">Nintendo <b>NES</b></span><span class="system-status">EmulatorJS · fceumm <i>↗</i></span></button>
+          <button class="system-item" data-system="SNES" data-core="snes"><span class="system-number">02</span><span class="system-name">Super <b>Nintendo</b></span><span class="system-status">EmulatorJS · snes9x <i>↗</i></span></button>
+          <button class="system-item" data-system="N64" data-core="n64"><span class="system-number">03</span><span class="system-name">Nintendo <b>64</b></span><span class="system-status">EmulatorJS · mupen64plus <i>↗</i></span></button>
+          <button class="system-item" data-system="PS1" data-core="psx"><span class="system-number">04</span><span class="system-name">PlayStation <b>1</b></span><span class="system-status">EmulatorJS · pcsx_rearmed <i>↗</i></span></button>
+          <div class="system-item system-unavailable" aria-disabled="true"><span class="system-number">05</span><span class="system-name">PlayStation <b>2</b></span><span class="system-status">غير مدعوم في مشغل الويب حالياً</span></div>
         </div>
       </section>
 
@@ -108,7 +110,7 @@
         <ul class="player-list" id="players"><li class="empty-player"><span class="empty-plus">+</span><span>أول لاعب له مكان هنا</span></li></ul>
       </section>
 
-      <p class="legal-note"><span>i</span> استخدم ملفات ألعاب تملك حق استخدامها، واربط نواة محاكي تدعم تعدد اللاعبين.</p>
+      <p class="legal-note"><span>i</span> تشغيل NES وSNES وN64 وPS1 متاح عبر EmulatorJS. تحكم الهاتف موصول للاعب الأول فقط حالياً؛ استخدم ألعاباً تملك حق استخدامها.</p>
     </aside>
   </main>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
