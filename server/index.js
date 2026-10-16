@@ -1,10 +1,12 @@
 import express from "express";
 import http from "node:http";
 import path from "node:path";
+import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Server } from "socket.io";
 import QRCode from "qrcode";
 import { RoomStore } from "./rooms.js";
+import { GameLibrary, MAX_GAME_BYTES } from "./game-library.js";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -16,11 +18,65 @@ const io = new Server(server, {
   pingTimeout: 20000
 });
 const rooms = new RoomStore();
+const gameLibrary = new GameLibrary();
 const inputTimes = new Map();
 
 app.use(express.static(path.join(directory, "../public")));
 app.get("/", (_request, response) => response.redirect(302, "/host.html"));
 app.get("/health", (_request, response) => response.status(200).json({ ok: true }));
+
+app.get("/api/games", async (_request, response) => {
+  try {
+    response.json(await gameLibrary.list());
+  } catch (error) {
+    response.status(error.status || 502).json({ error: error.message });
+  }
+});
+
+function requireGameLibraryAdmin(request, response, next) {
+  const expectedKey = process.env.GAME_LIBRARY_ADMIN_KEY;
+  const authorization = request.get("authorization") ?? "";
+  const suppliedKey = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!expectedKey) return response.status(503).json({ error: "مفتاح إدارة مكتبة الألعاب غير مضبوط على الخادم" });
+
+  const expected = Buffer.from(expectedKey);
+  const supplied = Buffer.from(suppliedKey);
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+    return response.status(403).json({ error: "مفتاح إدارة المكتبة غير صحيح" });
+  }
+  if (!gameLibrary.enabled) {
+    return response.status(503).json({ error: "صلاحيات GitHub لمكتبة الألعاب غير مضبوطة على الخادم" });
+  }
+  next();
+}
+
+app.post("/api/games/upload", requireGameLibraryAdmin,
+  express.raw({ type: "application/octet-stream", limit: `${MAX_GAME_BYTES}b` }),
+  async (request, response) => {
+    try {
+      const name = String(request.query.name ?? "");
+      const system = String(request.query.system ?? "");
+      const license = String(request.query.license ?? "");
+      const licenseUrl = String(request.query.licenseUrl ?? "");
+      const filename = String(request.query.filename ?? "");
+      const game = await gameLibrary.upload({ name, system, license, licenseUrl, filename }, request.body);
+      response.status(201).json({ game });
+    } catch (error) {
+      response.status(error.status || 502).json({ error: error.message });
+    }
+  }
+);
+
+app.post("/api/games/import", requireGameLibraryAdmin, express.json({ limit: "16kb" }),
+  async (request, response) => {
+    try {
+      const game = await gameLibrary.importFromRepository(request.body ?? {});
+      response.status(201).json({ game });
+    } catch (error) {
+      response.status(error.status || 502).json({ error: error.message });
+    }
+  }
+);
 
 app.get("/api/rooms/:code/qr", async (request, response) => {
   const { code } = request.params;

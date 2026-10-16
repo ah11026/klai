@@ -12,6 +12,9 @@ const connectionLabel = document.querySelector("#connectionLabel");
 const inputReadout = document.querySelector("#inputReadout");
 const gameStatus = document.querySelector("#gameStatus");
 const toast = document.querySelector("#toast");
+const libraryList = document.querySelector("#libraryList");
+const libraryStatus = document.querySelector("#libraryStatus");
+const libraryKey = document.querySelector("#libraryKey");
 let hostToken = "";
 let toastTimeout;
 
@@ -67,6 +70,138 @@ function renderPlayers(list) {
   }
 }
 
+function renderLibrary(data) {
+  libraryList.replaceChildren();
+  if (!data.enabled) {
+    const empty = document.createElement("li");
+    empty.className = "library-empty";
+    empty.textContent = "مكتبة GitHub غير مهيأة على الخادم.";
+    libraryList.append(empty);
+    return;
+  }
+  if (!data.games.length) {
+    const empty = document.createElement("li");
+    empty.className = "library-empty";
+    empty.textContent = "لا توجد ألعاب محفوظة في المستودع بعد.";
+    libraryList.append(empty);
+    return;
+  }
+
+  for (const game of data.games) {
+    const item = document.createElement("li");
+    item.className = "library-game";
+    const details = document.createElement("div");
+    details.className = "library-game-details";
+    const title = document.createElement("strong");
+    title.textContent = game.name;
+    const metadata = document.createElement("span");
+    metadata.textContent = `${game.system.toUpperCase()} · ${game.license}`;
+    details.append(title, metadata);
+
+    const download = document.createElement("a");
+    download.className = "download-game";
+    download.href = game.downloadUrl;
+    download.target = "_blank";
+    download.rel = "noopener noreferrer";
+    download.textContent = "تنزيل";
+    download.setAttribute("aria-label", `تنزيل ${game.name}`);
+    item.append(details, download);
+    libraryList.append(item);
+  }
+}
+
+async function refreshLibrary() {
+  try {
+    const response = await fetch("/api/games");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "تعذر تحميل المكتبة");
+    renderLibrary(result);
+  } catch (error) {
+    libraryList.replaceChildren();
+    const empty = document.createElement("li");
+    empty.className = "library-empty error";
+    empty.textContent = error.message;
+    libraryList.append(empty);
+  }
+}
+
+function readGameMetadata() {
+  return {
+    name: document.querySelector("#gameName").value.trim(),
+    system: document.querySelector("#gameSystem").value,
+    license: document.querySelector("#gameLicense").value.trim(),
+    licenseUrl: document.querySelector("#gameLicenseUrl").value.trim()
+  };
+}
+
+async function sendLibraryRequest(url, options, button) {
+  if (!libraryKey.value) {
+    libraryStatus.textContent = "أدخل مفتاح إدارة المكتبة أولاً.";
+    return;
+  }
+  button.disabled = true;
+  libraryStatus.textContent = "جارٍ حفظ اللعبة في GitHub...";
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: { ...options.headers, Authorization: `Bearer ${libraryKey.value}` }
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "تعذر حفظ اللعبة");
+    libraryStatus.textContent = `حُفظت «${result.game.name}» في مستودعك. تشغيل اللعبة يحتاج دمج محاكي.`;
+    await refreshLibrary();
+  } catch (error) {
+    libraryStatus.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.querySelector("#uploadGame").addEventListener("click", event => {
+  const file = document.querySelector("#gameFile").files[0];
+  if (!file) {
+    libraryStatus.textContent = "اختر ملف اللعبة أولاً.";
+    return;
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    libraryStatus.textContent = "حجم الملف يتجاوز الحد الأقصى البالغ 15 ميغابايت.";
+    return;
+  }
+  const query = new URLSearchParams({ ...readGameMetadata(), filename: file.name });
+  sendLibraryRequest(`/api/games/upload?${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file
+  }, event.currentTarget);
+});
+
+document.querySelector("#importGame").addEventListener("click", event => {
+  const payload = {
+    ...readGameMetadata(),
+    repository: document.querySelector("#sourceRepository").value.trim(),
+    branch: document.querySelector("#sourceBranch").value.trim(),
+    filePath: document.querySelector("#sourcePath").value.trim()
+  };
+  sendLibraryRequest("/api/games/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, event.currentTarget);
+});
+
+document.querySelector("#refreshLibrary").addEventListener("click", refreshLibrary);
+document.querySelectorAll("[data-library-mode]").forEach(button => {
+  button.addEventListener("click", () => {
+    const activeButton = document.querySelector("[data-library-mode].active");
+    activeButton?.classList.remove("active");
+    activeButton?.setAttribute("aria-pressed", "false");
+    button.classList.add("active");
+    button.setAttribute("aria-pressed", "true");
+    document.querySelector("#uploadPanel").hidden = button.dataset.libraryMode !== "upload";
+    document.querySelector("#importPanel").hidden = button.dataset.libraryMode !== "import";
+  });
+});
+
 socket.on("connect", () => {
   connection.classList.add("connected");
   connectionLabel.textContent = "متصل بالخادم";
@@ -104,6 +239,7 @@ document.querySelectorAll("[data-system]").forEach(button => {
   button.addEventListener("click", () => {
     document.querySelector(".system-item.selected")?.classList.remove("selected");
     button.classList.add("selected");
+    document.querySelector("#gameSystem").value = button.dataset.core;
     gameStatus.textContent = `تم اختيار ${button.dataset.system}. أضف نواة المحاكي وملف اللعبة لبدء التشغيل.`;
   });
 });
@@ -118,3 +254,5 @@ document.querySelector("#copyLink").addEventListener("click", async () => {
     showToast("تعذر نسخ الرابط من هذا المتصفح");
   }
 });
+
+refreshLibrary();
