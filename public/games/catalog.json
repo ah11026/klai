@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "id": "290810dd-1411-4fb7-8696-1835643c2597",
+    "name": "mariyo nes",
+    "system": "nes",
+    "license": "c.c",
+    "licenseUrl": "https://www.emulatorgamesx.net/download/?id=1411",
+    "sourceRepository": "رفع مباشر",
+    "path": "public/games/nes/mariyo-nes-6ae81bf1.nes",
+    "downloadUrl": "https://raw.githubusercontent.com/ah11026/klai/main/public/games/nes/mariyo-nes-6ae81bf1.nes",
+    "addedAt": "2026-10-16T16:34:39.814Z"
+  }
+]
