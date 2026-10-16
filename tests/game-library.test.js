@@ -152,18 +152,62 @@ test("private release listings use the app download proxy instead of exposing Gi
     assetName: "private-ds.nds",
     storage: "github-release"
   };
-  const fetcher = async url => {
+  const fetcher = async (url, options = {}) => {
     if (url.includes("contents/public/games/catalog.json")) {
       return Response.json({ message: "Not Found" }, { status: 404 });
     }
     if (url.endsWith("releases?per_page=100&page=1")) {
       return Response.json([{ tag_name: game.releaseTag, body: JSON.stringify(game), assets: [{ name: game.assetName }] }]);
     }
+    if (url.endsWith("/git/ref/heads/main")) return Response.json({ object: { sha: "head" } });
+    if (url.endsWith("/git/commits/head")) return Response.json({ tree: { sha: "tree" } });
+    if (url.endsWith("/git/trees/tree?recursive=1")) return Response.json({ tree: [] });
     throw new Error(`Unexpected GitHub request: ${url}`);
   };
   const library = new GameLibrary({ token: "test-token", repository: "owner/private-games", fetcher });
   const result = await library.list();
   assert.equal(result.games[0].downloadUrl, "/api/games/game-id/download");
+});
+
+test("library discovers manual game files from the private Git tree without duplicating catalog entries", async () => {
+  const catalogGame = {
+    id: "catalog-nes",
+    name: "Catalog NES",
+    system: "nes",
+    path: "public/games/nes/catalog.nes",
+    license: "MIT"
+  };
+  const catalogContent = Buffer.from(JSON.stringify([catalogGame])).toString("base64");
+  const fetcher = async (url, options = {}) => {
+    if (url.includes("contents/public/games/catalog.json")) {
+      return Response.json({ content: catalogContent });
+    }
+    if (url.endsWith("releases?per_page=100&page=1")) return Response.json([]);
+    if (url.endsWith("/git/ref/heads/main")) return Response.json({ object: { sha: "head" } });
+    if (url.endsWith("/git/commits/head")) return Response.json({ tree: { sha: "tree" } });
+    if (url.endsWith("/git/trees/tree?recursive=1")) {
+      return Response.json({ tree: [
+        { type: "blob", path: catalogGame.path, size: 100 },
+        { type: "blob", path: "public/games/nds/homebrew.ds.nds", size: 250000000 },
+        { type: "blob", path: "public/games/nds/not-a-rom.txt", size: 12 },
+        { type: "blob", path: "public/README.md", size: 20 }
+      ] });
+    }
+    if (url.includes("/contents/public/games/nds/homebrew.ds.nds?ref=main")) {
+      assert.equal(options.headers.Authorization, "Bearer token");
+      assert.equal(options.headers.Accept, "application/vnd.github.raw+json");
+      return new Response(Buffer.from([1, 2, 3]));
+    }
+    throw new Error(`Unexpected GitHub request: ${url}`);
+  };
+  const library = new GameLibrary({ token: "token", repository: "owner/private", fetcher });
+  const result = await library.list();
+  assert.equal(result.games.length, 2);
+  const manualGame = result.games.find(game => game.system === "nds");
+  assert.equal(manualGame.path, "public/games/nds/homebrew.ds.nds");
+  assert.equal(result.games.find(game => game.id === "catalog-nes").name, "Catalog NES");
+  const download = await library.getGameDownload(manualGame.id);
+  assert.deepEqual(Buffer.from(await download.response.arrayBuffer()), Buffer.from([1, 2, 3]));
 });
 
 test("private GitHub Release downloads use authenticated asset API responses", async () => {
@@ -183,6 +227,9 @@ test("private GitHub Release downloads use authenticated asset API responses", a
     if (url.endsWith("releases?per_page=100&page=1")) {
       return Response.json([{ tag_name: game.releaseTag, body: JSON.stringify(game), assets: [{ name: game.assetName }] }]);
     }
+    if (url.endsWith("/git/ref/heads/main")) return Response.json({ object: { sha: "head" } });
+    if (url.endsWith("/git/commits/head")) return Response.json({ tree: { sha: "tree" } });
+    if (url.endsWith("/git/trees/tree?recursive=1")) return Response.json({ tree: [] });
     if (url.endsWith(`/releases/tags/${game.releaseTag}`)) {
       return Response.json({ assets: [{ id: 22, name: game.assetName }] });
     }

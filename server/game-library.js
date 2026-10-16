@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -165,6 +165,33 @@ export class GameLibrary {
       }
       if (releases.length < 100) break;
     }
+
+    const indexedPaths = new Set(games.map(game => game.path).filter(Boolean));
+    const reference = await this.request(`git/ref/heads/${encodeURIComponent(this.branch)}`);
+    const head = await this.request(`git/commits/${reference.object.sha}`);
+    const tree = await this.request(`git/trees/${head.tree.sha}?recursive=1`);
+    for (const entry of tree.tree ?? []) {
+      if (entry.type !== "blob" || indexedPaths.has(entry.path)) continue;
+      const match = entry.path.match(/^public\/games\/(nes|snes|n64|psx|nds)\/(.+)$/);
+      if (!match) continue;
+      const [, system, fileName] = match;
+      const extension = path.posix.extname(fileName).toLowerCase();
+      if (!GAME_SYSTEMS[system].includes(extension)) continue;
+      const id = `tree-${createHash("sha256").update(entry.path).digest("hex").slice(0, 24)}`;
+      games.push({
+        id,
+        name: path.posix.basename(fileName, extension),
+        system,
+        license: "غير محدد",
+        licenseUrl: "",
+        sourceRepository: this.repository,
+        storage: "git-tree",
+        path: entry.path,
+        addedAt: null
+      });
+      indexedPaths.add(entry.path);
+    }
+
     return {
       enabled: true,
       games: games.map(game => ({
