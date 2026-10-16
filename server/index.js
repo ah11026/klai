@@ -8,6 +8,7 @@ import { RoomStore } from "./rooms.js";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = new Server(server, {
   maxHttpBufferSize: 16 * 1024,
@@ -19,6 +20,7 @@ const inputTimes = new Map();
 
 app.use(express.static(path.join(directory, "../public")));
 app.get("/", (_request, response) => response.redirect(302, "/host.html"));
+app.get("/health", (_request, response) => response.status(200).json({ ok: true }));
 
 app.get("/api/rooms/:code/qr", async (request, response) => {
   const { code } = request.params;
@@ -31,7 +33,7 @@ app.get("/api/rooms/:code/qr", async (request, response) => {
     return response.status(403).json({ error: "غير مصرح" });
   }
 
-  const configuredBase = process.env.PUBLIC_BASE_URL;
+  const configuredBase = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL;
   let baseUrl;
   try {
     baseUrl = new URL(configuredBase || `${request.protocol}://${request.get("host")}`);
